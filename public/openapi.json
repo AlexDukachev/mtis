@@ -1,0 +1,2617 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "MTIS API",
+        "version": "1.0.0",
+        "description": "API локального MVP. Вход через POST /login (Laravel session cookie). Для изменений нужен заголовок X-CSRF-TOKEN из meta тега страницы. Swagger UI /api-docs передает его автоматически. Сервер проверяет роль, активность и доступ к проекту для каждого запроса. Токены для внешних интеграций предусмотрены следующим этапом."
+    },
+    "servers": [
+        {
+            "url": "/api/v1"
+        }
+    ],
+    "paths": {
+        "/profile": {
+            "patch": {
+                "summary": "Изменить собственный профиль и тему",
+                "security": [{ "session": [] }],
+                "description": "Роль, емкость и состав проектов изменить нельзя. Для нового email или пароля требуется current_password.",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email"
+                                    },
+                                    "theme": {
+                                        "type": "string",
+                                        "enum": ["system", "light", "dark"]
+                                    },
+                                    "current_password": {
+                                        "type": "string",
+                                        "format": "password"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "minLength": 12
+                                    },
+                                    "password_confirmation": {
+                                        "type": "string",
+                                        "format": "password"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Профиль сохранен" },
+                    "422": {
+                        "description": "Некорректные данные или текущий пароль"
+                    }
+                }
+            }
+        },
+        "/roadmap": {
+            "get": {
+                "summary": "Годовая дорожная карта доступных проектов",
+                "security": [{ "session": [] }],
+                "description": "25 работ на страницу. Включает подготовку работ со сроками следующих лет. Риски: пропущенный старт, близкий старт, просрочка, нехватка FTE и пересечение назначенных разработчиков в доступных проектах. Базовый календарь Пн–Пт, без отпусков и текущих задач.",
+                "parameters": [
+                    {
+                        "name": "include_completed",
+                        "in": "query",
+                        "description": "Включить завершенные и отмененные работы",
+                        "schema": {
+                            "type": "integer",
+                            "enum": [0, 1],
+                            "default": 0
+                        }
+                    },
+                    {
+                        "name": "year",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 2020,
+                            "maximum": 2100
+                        }
+                    },
+                    {
+                        "name": "project_id",
+                        "in": "query",
+                        "schema": { "type": "integer" }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": { "type": "integer", "minimum": 1 }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "data, total, last_page, at_risk, year"
+                    }
+                }
+            },
+            "post": {
+                "summary": "Создать крупную работу (руководитель проекта или администратор)",
+                "security": [{ "session": [] }],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RoadmapPlan"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": { "description": "Создано" },
+                    "403": { "description": "Нет прав" },
+                    "422": { "description": "Ошибка валидации" }
+                }
+            }
+        },
+        "/roadmap/{roadmapItem}": {
+            "put": {
+                "summary": "Изменить крупную работу и зарезервированных исполнителей",
+                "security": [{ "session": [] }],
+                "parameters": [
+                    {
+                        "name": "roadmapItem",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "integer" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RoadmapPlan"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": { "description": "Сохранено" },
+                    "403": { "description": "Нет прав" },
+                    "422": {
+                        "description": "Ошибка валидации; изменение проекта запрещено"
+                    }
+                }
+            }
+        },
+        "/teams/{team}": {
+            "put": {
+                "summary": "Изменить название и состав своей команды",
+                "security": [{ "session": [] }],
+                "parameters": [
+                    {
+                        "name": "team",
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "integer" }
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name", "member_ids"],
+                                "properties": {
+                                    "name": { "type": "string" },
+                                    "member_ids": {
+                                        "type": "array",
+                                        "items": { "type": "integer" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Состав обновлен. Руководитель остается участником; доступ к проектам не меняется."
+                    },
+                    "403": { "description": "Нет прав" },
+                    "422": { "description": "Ошибка валидации" }
+                }
+            }
+        },
+        "/bootstrap": {
+            "get": {
+                "summary": "Справочники, пользователь, права и сохраненные фильтры",
+                "tags": ["bootstrap"],
+                "operationId": "get_bootstrap",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/issues": {
+            "get": {
+                "summary": "Поиск и фильтрация доступных задач",
+                "tags": ["issues"],
+                "operationId": "get_issues",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "q",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "project_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "status",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "assignee_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "reporter_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "tester_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "priority",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "type",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "department",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "tag",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "due_before",
+                        "in": "query",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "mine",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "qa",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "overdue",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "unassigned",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "unestimated",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "blocked",
+                        "in": "query",
+                        "schema": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "name": "page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "per_page",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "maximum": 100
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Создать задачу",
+                "tags": ["issues"],
+                "operationId": "post_issues",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/IssueInput"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/issues/{issue}": {
+            "get": {
+                "summary": "Карточка, участники, история, файлы и разрешенные переходы",
+                "tags": ["issues"],
+                "operationId": "get_issues__issue_",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "summary": "Редактировать доступные по роли поля",
+                "tags": ["issues"],
+                "operationId": "patch_issues__issue_",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/IssueUpdate"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/issues/{issue}/transitions": {
+            "post": {
+                "summary": "Выполнить разрешенный переход",
+                "tags": ["issues"],
+                "operationId": "post_issues__issue__transitions",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Transition"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/issues/{issue}/comments": {
+            "get": {
+                "summary": "Список comments",
+                "tags": ["issues"],
+                "operationId": "get_issues__issue__comments",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Добавить comments",
+                "tags": ["issues"],
+                "operationId": "post_issues__issue__comments",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Comment"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/issues/{issue}/worklogs": {
+            "get": {
+                "summary": "Список worklogs",
+                "tags": ["issues"],
+                "operationId": "get_issues__issue__worklogs",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Добавить worklogs",
+                "tags": ["issues"],
+                "operationId": "post_issues__issue__worklogs",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Worklog"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/issues/{issue}/attachments": {
+            "get": {
+                "summary": "Список вложений",
+                "tags": ["issues"],
+                "operationId": "get_issues__issue__attachments",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Загрузить вложение (20 МБ, 100 МБ на задачу)",
+                "tags": ["issues"],
+                "operationId": "post_issues__issue__attachments",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "issue",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["file"],
+                                "properties": {
+                                    "file": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/attachments/{attachment}": {
+            "get": {
+                "summary": "Скачать приватное вложение",
+                "tags": ["attachments"],
+                "operationId": "get_attachments__attachment_",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "attachment",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Файл для скачивания",
+                        "content": {
+                            "application/octet-stream": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users": {
+            "get": {
+                "summary": "Доступные users",
+                "tags": ["users"],
+                "operationId": "get_users",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Создать users",
+                "tags": ["users"],
+                "operationId": "post_users",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/User"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects": {
+            "get": {
+                "summary": "Доступные projects",
+                "tags": ["projects"],
+                "operationId": "get_projects",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Создать projects",
+                "tags": ["projects"],
+                "operationId": "post_projects",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/teams": {
+            "get": {
+                "summary": "Доступные teams",
+                "tags": ["teams"],
+                "operationId": "get_teams",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Создать teams",
+                "tags": ["teams"],
+                "operationId": "post_teams",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Team"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/users/{user}": {
+            "put": {
+                "summary": "Изменить пользователя (администратор)",
+                "tags": ["users"],
+                "operationId": "put_users__user_",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "user",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/User"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project}": {
+            "put": {
+                "summary": "Изменить проект и участников",
+                "tags": ["projects"],
+                "operationId": "put_projects__project_",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "project",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/projects/{project}/workflow": {
+            "put": {
+                "summary": "Настроить workflow проекта (администратор)",
+                "tags": ["projects"],
+                "operationId": "put_projects__project__workflow",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "project",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["workflow"],
+                                "properties": {
+                                    "workflow": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reports/dashboard": {
+            "get": {
+                "summary": "Показатели, проекты и активность",
+                "tags": ["reports"],
+                "operationId": "get_reports_dashboard",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/reports/workload": {
+            "get": {
+                "summary": "Загрузка разработчиков по периоду",
+                "tags": ["reports"],
+                "operationId": "get_reports_workload",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "period",
+                        "in": "query",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "today",
+                                "week",
+                                "next",
+                                "fortnight",
+                                "month",
+                                "custom"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "from",
+                        "in": "query",
+                        "schema": {
+                            "type": ["string", "null"],
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "to",
+                        "in": "query",
+                        "schema": {
+                            "type": ["string", "null"],
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "name": "team_id",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications": {
+            "get": {
+                "summary": "Уведомления текущего пользователя",
+                "tags": ["notifications"],
+                "operationId": "get_notifications",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/read": {
+            "post": {
+                "summary": "Прочитать одно или все уведомления",
+                "tags": ["notifications"],
+                "operationId": "post_notifications_read",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {
+                                        "type": ["integer", "null"]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/notifications/preferences": {
+            "put": {
+                "summary": "Настроить типы уведомлений",
+                "tags": ["notifications"],
+                "operationId": "put_notifications_preferences",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["preferences"],
+                                "properties": {
+                                    "preferences": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "type": "boolean"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/filters": {
+            "post": {
+                "summary": "Сохранить личный фильтр",
+                "tags": ["filters"],
+                "operationId": "post_filters",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "201": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "required": ["name", "filters"],
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "filters": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "type": ["string", "null"]
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/filters/{filter}": {
+            "delete": {
+                "summary": "Удалить свой фильтр",
+                "tags": ["filters"],
+                "operationId": "delete_filters__filter_",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "filter",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/admin": {
+            "get": {
+                "summary": "Пользователи, команды, настройки и аудит (администратор)",
+                "tags": ["admin"],
+                "operationId": "get_admin",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/settings": {
+            "put": {
+                "summary": "Настройки системы и RBAC",
+                "tags": ["settings"],
+                "operationId": "put_settings",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Settings"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/calendar": {
+            "post": {
+                "summary": "Исключение рабочего календаря",
+                "tags": ["calendar"],
+                "operationId": "post_calendar",
+                "security": [
+                    {
+                        "session": []
+                    }
+                ],
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Успешно",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Требуется вход"
+                    },
+                    "403": {
+                        "description": "Недостаточно прав"
+                    },
+                    "404": {
+                        "description": "Объект не найден или недоступен"
+                    },
+                    "422": {
+                        "description": "Ошибка валидации",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        }
+                    }
+                },
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Calendar"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "session": {
+                "type": "apiKey",
+                "in": "cookie",
+                "name": "mtis-session"
+            }
+        },
+        "schemas": {
+            "RoadmapPlan": {
+                "type": "object",
+                "required": [
+                    "project_id",
+                    "title",
+                    "deadline",
+                    "duration_days",
+                    "required_people",
+                    "status",
+                    "developer_ids"
+                ],
+                "properties": {
+                    "project_id": { "type": "integer" },
+                    "title": { "type": "string", "maxLength": 255 },
+                    "description": { "type": "string" },
+                    "deadline": { "type": "string", "format": "date" },
+                    "duration_days": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 520
+                    },
+                    "required_people": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["planned", "in_progress", "done", "cancelled"]
+                    },
+                    "developer_ids": {
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "uniqueItems": true,
+                        "maxItems": 100
+                    }
+                }
+            },
+            "IssueInput": {
+                "type": "object",
+                "required": ["project_id", "title", "description"],
+                "properties": {
+                    "project_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string",
+                        "default": "task"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": [
+                            "low",
+                            "normal",
+                            "high",
+                            "critical",
+                            "blocking"
+                        ]
+                    },
+                    "assignee_id": {
+                        "type": ["integer", "null"]
+                    },
+                    "tester_id": {
+                        "type": ["integer", "null"]
+                    },
+                    "parent_id": {
+                        "type": ["integer", "null"]
+                    },
+                    "due_date": {
+                        "type": ["string", "null"],
+                        "format": "date"
+                    },
+                    "planned_start": {
+                        "type": ["string", "null"],
+                        "format": "date"
+                    },
+                    "planned_end": {
+                        "type": ["string", "null"],
+                        "format": "date"
+                    },
+                    "estimate": {
+                        "type": ["number", "null"],
+                        "minimum": 0
+                    },
+                    "remaining": {
+                        "type": ["number", "null"],
+                        "minimum": 0
+                    },
+                    "solution": {
+                        "type": "string"
+                    },
+                    "component": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "Transition": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "new",
+                            "review",
+                            "clarification",
+                            "ready",
+                            "development",
+                            "qa",
+                            "testing",
+                            "returned",
+                            "acceptance",
+                            "blocked",
+                            "deferred",
+                            "closed",
+                            "cancelled"
+                        ]
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Обязательна при возврате и блокировке."
+                    },
+                    "estimate": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 100000,
+                        "description": "При начале разработки заполняет отсутствующие оценки атомарно с переходом. Существующие оценки не меняет."
+                    },
+                    "test_result": {
+                        "type": "object",
+                        "properties": {
+                            "expected": {
+                                "type": "string"
+                            },
+                            "actual": {
+                                "type": "string"
+                            },
+                            "steps": {
+                                "type": "string"
+                            },
+                            "environment": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "Comment": {
+                "type": "object",
+                "required": ["body"],
+                "properties": {
+                    "body": {
+                        "type": "string"
+                    },
+                    "parent_id": {
+                        "type": ["integer", "null"]
+                    }
+                }
+            },
+            "Worklog": {
+                "type": "object",
+                "required": ["date", "hours", "remaining"],
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "hours": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 24
+                    },
+                    "remaining": {
+                        "type": "number",
+                        "minimum": 0
+                    },
+                    "comment": {
+                        "type": "string"
+                    }
+                }
+            },
+            "User": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "username",
+                    "email",
+                    "role",
+                    "active",
+                    "weekly_capacity",
+                    "wip_limit",
+                    "work_days",
+                    "team_ids",
+                    "project_ids"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "password": {
+                        "type": "string",
+                        "minLength": 12,
+                        "description": "Обязателен при создании. Нужны прописные и строчные буквы, цифры, спецсимвол."
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": [
+                            "admin",
+                            "manager",
+                            "reporter",
+                            "developer",
+                            "tester",
+                            "observer"
+                        ]
+                    },
+                    "active": {
+                        "type": "boolean"
+                    },
+                    "weekly_capacity": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 168
+                    },
+                    "wip_limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 50
+                    },
+                    "work_days": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 7
+                        },
+                        "uniqueItems": true
+                    },
+                    "team_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    "project_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    "department": {
+                        "type": "string"
+                    },
+                    "position": {
+                        "type": "string"
+                    }
+                }
+            },
+            "Project": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "key",
+                    "team_id",
+                    "owner_id",
+                    "status",
+                    "color",
+                    "member_ids"
+                ],
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string",
+                        "pattern": "^[A-Z][A-Z0-9]{1,12}$"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "team_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "owner_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["active", "paused", "archived"]
+                    },
+                    "color": {
+                        "type": "string",
+                        "pattern": "^#[0-9a-fA-F]{6}$"
+                    },
+                    "member_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                }
+            },
+            "Team": {
+                "type": "object",
+                "required": ["name", "leader_id"],
+                "properties": {
+                    "name": {
+                        "type": "string"
+                    },
+                    "leader_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                }
+            },
+            "Calendar": {
+                "type": "object",
+                "required": ["date", "hours", "reason"],
+                "properties": {
+                    "user_id": {
+                        "type": ["integer", "null"]
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "hours": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 24
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                }
+            },
+            "Settings": {
+                "type": "object",
+                "properties": {
+                    "thresholds": {
+                        "type": "object",
+                        "properties": {
+                            "reserve": {
+                                "type": "number",
+                                "minimum": 0
+                            },
+                            "overload": {
+                                "type": "number",
+                                "minimum": 0
+                            }
+                        }
+                    },
+                    "permissions": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "types": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "Error": {
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string"
+                    },
+                    "errors": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "IssueUpdate": {
+                "type": "object",
+                "required": [],
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "type": {
+                        "type": "string",
+                        "default": "task"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": [
+                            "low",
+                            "normal",
+                            "high",
+                            "critical",
+                            "blocking"
+                        ]
+                    },
+                    "assignee_id": {
+                        "type": ["integer", "null"]
+                    },
+                    "tester_id": {
+                        "type": ["integer", "null"]
+                    },
+                    "due_date": {
+                        "type": ["string", "null"],
+                        "format": "date"
+                    },
+                    "planned_start": {
+                        "type": ["string", "null"],
+                        "format": "date"
+                    },
+                    "planned_end": {
+                        "type": ["string", "null"],
+                        "format": "date"
+                    },
+                    "estimate": {
+                        "type": ["number", "null"],
+                        "minimum": 0
+                    },
+                    "remaining": {
+                        "type": ["number", "null"],
+                        "minimum": 0
+                    },
+                    "solution": {
+                        "type": "string"
+                    },
+                    "component": {
+                        "type": "string"
+                    },
+                    "version": {
+                        "type": "string"
+                    },
+                    "environment": {
+                        "type": "string"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
